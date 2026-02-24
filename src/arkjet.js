@@ -4,7 +4,7 @@ const arcjetKey = process.env.ARCJET_KEY;
 const arcjetMode = process.env.ARCJET_MODE === "DRY_RUN" ? "DRY_RUN" : "LIVE";
 
 if (!arcjetKey) {
-  throw new Error("ARCJET_KEY is not set");
+  console.warn("ARCJET_KEY is not set — ArcJet protection is disabled");
 }
 
 export const httpArcjet = arcjetKey
@@ -46,23 +46,23 @@ export const wsArcjet = arcjetKey
 export function securityMiddleware() {
   return async (req, res, next) => {
     if (!httpArcjet) {
-      next();
+      return next();
     }
     try {
       const decision = await httpArcjet.protect(req);
 
       if (decision.isDenied()) {
         if (decision.reason.isRateLimit()) {
-          return res.status(429).json({ error: "Too many request" });
+          return res.status(429).json({ error: "Too many requests" });
         }
 
         return res.status(403).json({ error: "Forbidden" });
       }
     } catch (error) {
       console.error("ArcJet middleware error:", error);
-      res.status(503).json({ error: "Service Unavailable" });
+      return res.status(503).json({ error: "Service Unavailable" });
     }
 
-    next();
+    return next();
   };
 }

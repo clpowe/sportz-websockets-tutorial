@@ -2,6 +2,7 @@ import express from "express";
 import { matchRouter } from "./routes/matches.js";
 import http from "http";
 import { attachWebSocketServer } from "./ws/server.js";
+import { securityMiddleware } from "./arkjet.js";
 
 const PORT = Number(process.env.PORT || 8000);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -15,13 +16,16 @@ app.get("/", (_req, res) => {
   res.send("Sportz API is running.");
 });
 
+app.use(securityMiddleware());
+
 app.use("/matches", matchRouter);
 
 const { broadcastMatchCreated } = attachWebSocketServer(server);
 app.locals.broadcastMatchCreated = broadcastMatchCreated;
 
 server.listen(PORT, HOST, () => {
-  const baseUrl = HOST === '0.0.0.0' ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
+  const baseUrl =
+    HOST === "0.0.0.0" ? `http://localhost:${PORT}` : `http://${HOST}:${PORT}`;
   console.log(`Server running at ${baseUrl}`);
-  console.log(`WebSocket running at ${baseUrl.replace('http', 'ws')}/ws`);
+  console.log(`WebSocket running at ${baseUrl.replace("http", "ws")}/ws`);
 });

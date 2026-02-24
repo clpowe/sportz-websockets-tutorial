@@ -1,55 +1,77 @@
 import { WebSocketServer, WebSocket } from "ws";
+import { wsArcjet } from "../arkjet.js";
 
 function sendJson(socket, payload) {
-    if (socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify(payload));
+  if (socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify(payload));
 }
 
 function broadcast(wss, payload) {
-    const msg = JSON.stringify(payload);
-    for (const client of wss.clients) {
-        if (client.readyState !== WebSocket.OPEN) continue;
-        client.send(msg);
-    }
+  const msg = JSON.stringify(payload);
+  for (const client of wss.clients) {
+    if (client.readyState !== WebSocket.OPEN) continue;
+    client.send(msg);
+  }
 }
 
 export function attachWebSocketServer(server) {
-    const wss = new WebSocketServer({
-        server,
-        path: "/ws",
-        maxPayload: 1024 * 1024,
-    });
+  const wss = new WebSocketServer({
+    server,
+    path: "/ws",
+    maxPayload: 1024 * 1024,
+  });
 
-    wss.on("connection", (socket, req) => {
-        socket.isAlive = true;
-        socket.on("pong", () => {
-            socket.isAlive = true;
-        });
+  wss.on("upgrade", async (socket, req) => {
+    if (wsArcjet) {
+      try {
+        const decision = await wsArcjet.protect(req);
 
-        sendJson(socket, { type: "welcome" });
-        socket.on("error", console.error);
-    });
-
-    const interval = setInterval(() => {
-        wss.clients.forEach((ws) => {
-            if (!ws.isAlive) return ws.terminate();
-            ws.isAlive = false;
-            ws.ping();
-        });
-    }, 30000);
-
-    wss.on("close", () => {
-        clearInterval(interval);
-    });
-
-    function broadcastMatchCreated(match) {
-        broadcast(wss, {
-            type: "match_created",
-            data: match,
-        });
+        if (decision.isDenied()) {
+          if (decision.reason.isRateLimit()) {
+            socket.write("HTTP/1.1 429 Too Many Requests\r\n\r\n");
+          } else {
+            socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+          }
+          socket.destroy();
+          return;
+        }
+      } catch (e) {
+        console.error("WS upgrade protection error", e);
+        socket.write("HTTP/1.1 500 Internal Server Error\r\n\r\n");
+        socket.destroy();
+        return;
+      }
     }
 
-    return {
-        broadcastMatchCreated,
-    };
+    socket.isAlive = true;
+    socket.on("pong", () => {
+      socket.isAlive = true;
+    });
+
+    sendJson(socket, { type: "welcome" });
+    socket.on("error", console.error);
+  });
+
+  const interval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (!ws.isAlive) return ws.terminate();
+      ws.isAlive = false;
+      ws.ping();
+    });
+  }, 30000);
+
+  wss.on("close", () => {
+    clearInterval(interval);
+  });
+
+  function broadcastMatchCreated(match) {
+    broadcast(wss, {
+      type: "match_created",
+      data: match,
+    });
+  }
+
+  return {
+    broadcastMatchCreated,
+  };
 }
